@@ -16,4 +16,4 @@ target/
 .DS_Store
 
 # Environment & Secrets
-.env
+.env**/target/
