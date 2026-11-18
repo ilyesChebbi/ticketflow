@@ -1,0 +1,32 @@
+openapi: 3.0.3
+info:
+  title: TicketFlow REST API
+  version: 1.0.0
+paths:
+  /api/v1/events:
+    get:
+      summary: List events
+      responses:
+        '200':
+          description: OK
+  /api/v1/orders:
+    post:
+      summary: Create an order (Idempotent)
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sessionId: { type: string }
+                category: { type: string }
+                quantity: { type: integer }
+      responses:
+        '201': { description: Created }
+        '409': { description: Conflict }
+        '503': { description: Service Unavailable }
