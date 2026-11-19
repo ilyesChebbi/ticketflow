@@ -1,0 +1,33 @@
+server:
+  port: ${SERVER_PORT:8081}
+
+spring:
+  application:
+    name: event-catalog-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/eventdb}
+    username: ${DB_USER:ticketflow}
+    password: ${DB_PASSWORD:yuukii11}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
