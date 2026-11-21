@@ -1,0 +1,36 @@
+server:
+  port: ${SERVER_PORT:8084}
+
+spring:
+  application:
+    name: pricing-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/pricingdb}
+    username: ${DB_USER:ticketflow}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      # Le schéma est géré par db/schema.sql : Hibernate ne crée ni ne modifie aucune table.
+      ddl-auto: none
+    open-in-view: false
+  sql:
+    init:
+      # always = exécuter schema.sql puis data.sql à chaque démarrage (PostgreSQL n'est pas une base "embedded")
+      mode: always
+      encoding: UTF-8
+      schema-locations: classpath:db/schema.sql
+      data-locations: classpath:db/data.sql
+
+grpc:
+  server:
+    port: ${GRPC_SERVER_PORT:9091}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

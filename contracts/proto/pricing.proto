@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package ticketflow.pricing.v1;
+
+option java_multiple_files = true;
+option java_package = "com.ticketflow.pricing.grpc";
+
+// Tous les montants sont des entiers en MILLIMES de dinar tunisien
+// (1 TND = 1000 millimes ; 45,500 TND = 45500).
+
+service PricingService {
+  rpc GetPrice(GetPriceRequest) returns (GetPriceResponse);
+  rpc BatchQuote(stream QuoteItem) returns (BatchQuoteResponse);
+}
+
+message GetPriceRequest {
+  string session_id = 1;
+  string category = 2;
+  int32 quantity = 3;
+  string session_date = 4;  // LocalDateTime ISO, ex. "2026-12-15T20:30:00"
+  string promo_code = 5;    // optionnel : vide si aucun code
+}
+
+enum PromoStatus {
+  PROMO_STATUS_UNSPECIFIED = 0;
+  NO_PROMO = 1;       // aucune promotion appliquée
+  PROMO_APPLIED = 2;  // code valide ou promotion automatique
+  PROMO_INVALID = 3;  // code inconnu ou expiré : prix calculé sans promo
+}
+
+message GetPriceResponse {
+  int64 unit_price_millimes = 1;  // prix unitaire après règle de catégorie et de date
+  int32 quantity = 2;
+  int64 subtotal_millimes = 3;
+  int64 discount_millimes = 4;
+  int64 total_millimes = 5;
+  string currency = 6;            // toujours "TND"
+  PromoStatus promo_status = 7;
+  string applied_promotion = 8;   // code ou nom de la promotion, vide si aucune
+}
+
+message QuoteItem {
+  string line_id = 1;  // identifiant de ligne choisi par le client
+  string session_id = 2;
+  string category = 3;
+  int32 quantity = 4;
+  string session_date = 5;
+  string promo_code = 6;
+}
+
+message QuoteLine {
+  string line_id = 1;
+  GetPriceResponse price = 2;
+}
+
+message BatchQuoteResponse {
+  repeated QuoteLine lines = 1;
+  int64 total_millimes = 2;
+  string currency = 3;  // toujours "TND"
+}
