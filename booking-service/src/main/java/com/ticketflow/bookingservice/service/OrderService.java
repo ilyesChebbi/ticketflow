@@ -4,6 +4,9 @@ import com.ticketflow.bookingservice.dto.OrderRequest;
 import com.ticketflow.bookingservice.dto.OrderResponse;
 import com.ticketflow.bookingservice.entity.Order;
 import com.ticketflow.bookingservice.repository.OrderRepository;
+import com.ticketflow.pricing.grpc.GetPriceResponse;
+import com.ticketflow.seatinventory.grpc.ReserveSeatsResponse;
+import com.ticketflow.seatinventory.grpc.ReserveStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -14,11 +17,17 @@ public class OrderService {
 
     private final OrderRepository orderRepository;
     private final PaymentClient paymentClient;
-    // TODO: Inject gRPC clients  here later
+    private final PricingClient pricingClient;
+    private final InventoryClient inventoryClient;
 
-    public OrderService(OrderRepository orderRepository , PaymentClient paymentClient) {
+    public OrderService(OrderRepository orderRepository,
+                        PaymentClient paymentClient,
+                        PricingClient pricingClient,
+                        InventoryClient inventoryClient) {
         this.orderRepository = orderRepository;
         this.paymentClient = paymentClient;
+        this.pricingClient = pricingClient;
+        this.inventoryClient = inventoryClient;
     }
 
     @Transactional
@@ -41,29 +50,48 @@ public class OrderService {
         order.setStatus("PENDING");
         order = orderRepository.save(order);
 
+        String reservationId = order.getId().toString();
+
         try {
             // 3. ORCHESTRATION (SAGA PATTERN)
 
-            // Step A: Call Teammate B (gRPC Seat Inventory - ReserveSeats)
-            // boolean reserved = inventoryClient.reserveSeats(request.getSessionId(), request.getCategory(), request.getQuantity(), order.getId().toString());
+            // Step A: Call gRPC Seat Inventory
+            ReserveSeatsResponse reserveResponse = inventoryClient.reserveSeats(
+                    reservationId,
+                    request.getSessionId(),
+                    request.getCategory(),
+                    request.getQuantity()
+            );
 
-            // Step B: Call Teammate B (gRPC Pricing - GetPrice)
-            // double price = pricingClient.getPrice(request.getSessionId(), request.getCategory(), request.getQuantity());
+            if (reserveResponse.getStatus() != ReserveStatus.RESERVED && reserveResponse.getStatus() != ReserveStatus.ALREADY_RESERVED) {
+                throw new RuntimeException("Not enough seats available: " + reserveResponse.getMessage());
+            }
 
-            // Step C: Call Teammate C (SOAP Payment - authorizePayment)
-            // String transactionId = paymentClient.authorizePayment(order.getId().toString(), price, "EUR", "VALID_TOKEN");
+            // Step B: Call gRPC Pricing
+            GetPriceResponse priceResponse = pricingClient.getPrice(
+                    request.getSessionId(),
+                    request.getCategory(),
+                    request.getQuantity()
+            );
+
+            // Convert millimes to TND (Double)
+            double priceInTnd = priceResponse.getTotalMillimes() / 1000.0;
+
+            // Step C: Call SOAP Payment
             var paymentResponse = paymentClient.authorizePayment(
                     order.getId().toString(),
-                    100.0, // Placeholder price, we will use gRPC pricing later
-                    "EUR",
+                    priceInTnd,
+                    "TND",
                     "VALID_TOKEN"
             );
 
             // 4. SUCCESS -> CONFIRM ORDER
             if ("APPROVED".equals(paymentResponse.getStatus())) {
                 order.setStatus("CONFIRMED");
+                order.setTotalPrice(priceInTnd);
                 order.setPaymentTransactionId(paymentResponse.getTransactionId());
                 orderRepository.save(order);
+
                 return new OrderResponse(order.getId(), order.getStatus(),
                         order.getPaymentTransactionId(), order.getTotalPrice(),
                         "Order confirmed successfully");
@@ -73,8 +101,11 @@ public class OrderService {
 
         } catch (Exception e) {
             // 5. COMPENSATION (ROLLBACK)
-            // If payment fails, we must release the seats we just reserved!
-            // inventoryClient.releaseSeats(order.getId().toString());
+            try {
+                inventoryClient.releaseSeats(reservationId);
+            } catch (Exception ex) {
+                System.err.println("Failed to release seats for order " + reservationId + ": " + ex.getMessage());
+            }
 
             order.setStatus("FAILED");
             orderRepository.save(order);
