@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package ticketflow.seatinventory.v1;
+
+option java_multiple_files = true;
+option java_package = "com.ticketflow.seatinventory.grpc";
+
+service SeatInventoryService {
+  rpc CheckAvailability(CheckAvailabilityRequest) returns (CheckAvailabilityResponse);
+  rpc ReserveSeats(ReserveSeatsRequest) returns (ReserveSeatsResponse);
+  rpc ReleaseSeats(ReleaseSeatsRequest) returns (ReleaseSeatsResponse);
+  rpc WatchAvailability(WatchAvailabilityRequest) returns (stream AvailabilityUpdate);
+}
+
+message CheckAvailabilityRequest {
+  string session_id = 1;
+  string category = 2;
+}
+
+message CheckAvailabilityResponse {
+  string session_id = 1;
+  string category = 2;
+  int32 available_seats = 3;
+  int32 total_seats = 4;
+}
+
+message ReserveSeatsRequest {
+  string reservation_id = 1;  // clé d'idempotence fournie par booking-service
+  string session_id = 2;
+  string category = 3;
+  int32 quantity = 4;
+}
+
+enum ReserveStatus {
+  RESERVE_STATUS_UNSPECIFIED = 0;
+  RESERVED = 1;
+  INSUFFICIENT_SEATS = 2;
+  ALREADY_RESERVED = 3;  // même reservation_id rejoué : pas de double réservation
+}
+
+message ReserveSeatsResponse {
+  ReserveStatus status = 1;
+  string reservation_id = 2;
+  int32 remaining_seats = 3;
+  string message = 4;
+}
+
+message ReleaseSeatsRequest {
+  string reservation_id = 1;  // le serveur retrouve session, catégorie et quantité
+}
+
+enum ReleaseStatus {
+  RELEASE_STATUS_UNSPECIFIED = 0;
+  RELEASED = 1;
+  NOT_FOUND = 2;  // déjà libérée ou inconnue : traité comme un succès par booking
+}
+
+message ReleaseSeatsResponse {
+  ReleaseStatus status = 1;
+  int32 remaining_seats = 2;
+}
+
+message WatchAvailabilityRequest {
+  string session_id = 1;
+  string category = 2;  // vide = toutes les catégories de la séance
+}
+
+enum ChangeReason {
+  CHANGE_REASON_UNSPECIFIED = 0;
+  SNAPSHOT = 1;  // premier message à la connexion : état actuel
+  RESERVED_SEATS = 2;
+  RELEASED_SEATS = 3;
+}
+
+message AvailabilityUpdate {
+  string session_id = 1;
+  string category = 2;
+  int32 available_seats = 3;
+  int32 total_seats = 4;
+  ChangeReason reason = 5;
+  int64 timestamp_ms = 6;  // millisecondes depuis 1970
+}
