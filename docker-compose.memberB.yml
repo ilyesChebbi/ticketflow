@@ -1,0 +1,49 @@
+# Partie Membre B : seat-inventory-service (Redis) + pricing-service (PostgreSQL).
+# Le mot de passe de la base n'est PAS dans ce fichier : il vient de la variable d'environnement PRICING_DB_PASSWORD.
+services:
+  redis:
+    image: redis:7
+
+  pricing-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: pricingdb
+      POSTGRES_USER: ticketflow
+      POSTGRES_PASSWORD: ${PRICING_DB_PASSWORD:?définir PRICING_DB_PASSWORD}
+    volumes:
+      - pricing-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketflow -d pricingdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  seat-inventory-service:
+    build:
+      context: .
+      dockerfile: seat-inventory-service/Dockerfile
+    environment:
+      REDIS_HOST: redis
+    ports:
+      - "8083:8083"
+      - "9090:9090"
+    depends_on:
+      - redis
+
+  pricing-service:
+    build:
+      context: .
+      dockerfile: pricing-service/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://pricing-db:5432/pricingdb
+      DB_USER: ticketflow
+      DB_PASSWORD: ${PRICING_DB_PASSWORD:?définir PRICING_DB_PASSWORD}
+    ports:
+      - "8084:8084"
+      - "9091:9091"
+    depends_on:
+      pricing-db:
+        condition: service_healthy
+
+volumes:
+  pricing-db-data:
