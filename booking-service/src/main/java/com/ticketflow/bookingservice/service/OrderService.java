@@ -13,10 +13,12 @@ import java.util.Optional;
 public class OrderService {
 
     private final OrderRepository orderRepository;
-    // TODO: Inject gRPC clients and SOAP client here later
+    private final PaymentClient paymentClient;
+    // TODO: Inject gRPC clients  here later
 
-    public OrderService(OrderRepository orderRepository) {
+    public OrderService(OrderRepository orderRepository , PaymentClient paymentClient) {
         this.orderRepository = orderRepository;
+        this.paymentClient = paymentClient;
     }
 
     @Transactional
@@ -50,16 +52,24 @@ public class OrderService {
 
             // Step C: Call Teammate C (SOAP Payment - authorizePayment)
             // String transactionId = paymentClient.authorizePayment(order.getId().toString(), price, "EUR", "VALID_TOKEN");
+            var paymentResponse = paymentClient.authorizePayment(
+                    order.getId().toString(),
+                    100.0, // Placeholder price, we will use gRPC pricing later
+                    "EUR",
+                    "VALID_TOKEN"
+            );
 
             // 4. SUCCESS -> CONFIRM ORDER
-            order.setStatus("CONFIRMED");
-            // order.setTotalPrice(price);
-            // order.setPaymentTransactionId(transactionId);
-            orderRepository.save(order);
-
-            return new OrderResponse(order.getId(), order.getStatus(),
-                    order.getPaymentTransactionId(), order.getTotalPrice(),
-                    "Order confirmed successfully");
+            if ("APPROVED".equals(paymentResponse.getStatus())) {
+                order.setStatus("CONFIRMED");
+                order.setPaymentTransactionId(paymentResponse.getTransactionId());
+                orderRepository.save(order);
+                return new OrderResponse(order.getId(), order.getStatus(),
+                        order.getPaymentTransactionId(), order.getTotalPrice(),
+                        "Order confirmed successfully");
+            } else {
+                throw new RuntimeException("Payment refused by PSP");
+            }
 
         } catch (Exception e) {
             // 5. COMPENSATION (ROLLBACK)
