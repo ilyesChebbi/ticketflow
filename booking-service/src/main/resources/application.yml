@@ -7,7 +7,7 @@ spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5433/bookingdb}
     username: ${DB_USER:ticketflow}
-    password: ${DB_PASSWORD:yuukii11}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
@@ -32,7 +32,7 @@ springdoc:
   swagger-ui:
     path: /swagger-ui.html
 
-# Resilience4j Configuration (We will use this soon)
+# Resilience4j Configuration
 resilience4j:
   circuitbreaker:
     instances:
@@ -40,12 +40,34 @@ resilience4j:
         slidingWindowSize: 10
         failureRateThreshold: 50
         waitDurationInOpenState: 10s
+        ignoreExceptions:
+          - com.ticketflow.bookingservice.exception.InsufficientSeatsException
       paymentService:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+        ignoreExceptions:
+          - com.ticketflow.bookingservice.exception.PaymentRefusedException
+          - com.ticketflow.bookingservice.exception.BookingException
+      pricingService:
         slidingWindowSize: 10
         failureRateThreshold: 50
         waitDurationInOpenState: 10s
   retry:
     instances:
       inventoryService:
-        maxAttempts: 3
-        waitDuration: 500ms
+        maxAttempts: 2
+        waitDuration: 200ms
+
+# Adresses des services appelés (valeurs par défaut = lancement en local, sans Docker)
+grpc:
+  seat-inventory:
+    host: ${SEAT_INVENTORY_HOST:localhost}
+    port: ${SEAT_INVENTORY_PORT:9090}
+  pricing:
+    host: ${PRICING_HOST:localhost}
+    port: ${PRICING_PORT:9091}
+
+payment:
+  soap:
+    url: ${PAYMENT_SOAP_URL:http://localhost:8085/ws}

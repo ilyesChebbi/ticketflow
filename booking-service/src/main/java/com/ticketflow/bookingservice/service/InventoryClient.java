@@ -1,8 +1,11 @@
 package com.ticketflow.bookingservice.service;
 
+import com.ticketflow.bookingservice.exception.DependencyUnavailableException;
 import com.ticketflow.seatinventory.grpc.*;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.TimeUnit;
@@ -12,18 +15,19 @@ public class InventoryClient {
 
     private final SeatInventoryServiceGrpc.SeatInventoryServiceBlockingStub inventoryStub;
 
-    public InventoryClient() {
+    public InventoryClient(@Value("${grpc.seat-inventory.host:localhost}") String host,
+                           @Value("${grpc.seat-inventory.port:9090}") int port) {
         // Teammate B's inventory service port (9090)
         ManagedChannel channel = ManagedChannelBuilder
-                .forAddress("localhost", 9090)
+                .forAddress(host, port)
                 .usePlaintext()
                 .build();
 
-        // Deadline of 500ms as specified in the PDF
-        this.inventoryStub = SeatInventoryServiceGrpc.newBlockingStub(channel)
-                .withDeadlineAfter(500, TimeUnit.MILLISECONDS);
+        // No deadline on the stub: applied per call to avoid expiry after startup
+        this.inventoryStub = SeatInventoryServiceGrpc.newBlockingStub(channel);
     }
 
+    @CircuitBreaker(name = "inventoryService", fallbackMethod = "reserveSeatsFallback")
     public ReserveSeatsResponse reserveSeats(String reservationId, String sessionId, String category, int quantity) {
         ReserveSeatsRequest request = ReserveSeatsRequest.newBuilder()
                 .setReservationId(reservationId)
@@ -32,7 +36,11 @@ public class InventoryClient {
                 .setQuantity(quantity)
                 .build();
 
-        return inventoryStub.reserveSeats(request);
+        return inventoryStub.withDeadlineAfter(500, TimeUnit.MILLISECONDS).reserveSeats(request);
+    }
+
+    public ReserveSeatsResponse reserveSeatsFallback(String reservationId, String sessionId, String category, int quantity, Throwable t) {
+        throw new DependencyUnavailableException("INVENTORY_UNAVAILABLE", "Service d'inventaire indisponible: " + t.getMessage());
     }
 
     public void releaseSeats(String reservationId) {
@@ -40,6 +48,6 @@ public class InventoryClient {
                 .setReservationId(reservationId)
                 .build();
 
-        inventoryStub.releaseSeats(request);
+        inventoryStub.withDeadlineAfter(500, TimeUnit.MILLISECONDS).releaseSeats(request);
     }
 }

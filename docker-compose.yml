@@ -1,4 +1,165 @@
-# TicketFlow — Docker Compose (à compléter par Membre C)
-version: "3.9"
+# TicketFlow : toute la stack avec  docker compose up --build
+# Prérequis : copier .env.example en .env et renseigner les mots de passe.
 
-services: {}
+networks:
+  ticketflow-net:
+    driver: bridge
+
+volumes:
+  catalog-db-data:
+  booking-db-data:
+  pricing-db-data:
+  redis-data:
+
+services:
+  # ---------- Bases de données ----------
+  catalog-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: eventdb
+      POSTGRES_USER: ticketflow
+      POSTGRES_PASSWORD: ${CATALOG_DB_PASSWORD:?définir CATALOG_DB_PASSWORD dans .env}
+    volumes:
+      - catalog-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketflow -d eventdb"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [ticketflow-net]
+
+  booking-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bookingdb
+      POSTGRES_USER: ticketflow
+      POSTGRES_PASSWORD: ${BOOKING_DB_PASSWORD:?définir BOOKING_DB_PASSWORD dans .env}
+    volumes:
+      - booking-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketflow -d bookingdb"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [ticketflow-net]
+
+  pricing-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pricingdb
+      POSTGRES_USER: ticketflow
+      POSTGRES_PASSWORD: ${PRICING_DB_PASSWORD:?définir PRICING_DB_PASSWORD dans .env}
+    volumes:
+      - pricing-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketflow -d pricingdb"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [ticketflow-net]
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [ticketflow-net]
+
+  # ---------- Services métier ----------
+  event-catalog:                       # REST (Membre A)
+    build: ./event-catalog-service
+    environment:
+      SERVER_PORT: 8081
+      DB_URL: jdbc:postgresql://catalog-db:5432/eventdb
+      DB_USER: ticketflow
+      DB_PASSWORD: ${CATALOG_DB_PASSWORD}
+    ports: ["8081:8081"]
+    depends_on:
+      catalog-db:
+        condition: service_healthy
+    networks: [ticketflow-net]
+
+  seat-inventory:                      # gRPC + Redis (Membre B)
+    build:
+      context: .
+      dockerfile: seat-inventory-service/Dockerfile
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    ports: ["8083:8083", "9090:9090"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [ticketflow-net]
+
+  pricing:                             # gRPC + PostgreSQL (Membre B)
+    build:
+      context: .
+      dockerfile: pricing-service/Dockerfile
+    environment:
+      DB_URL: jdbc:postgresql://pricing-db:5432/pricingdb
+      DB_USER: ticketflow
+      DB_PASSWORD: ${PRICING_DB_PASSWORD}
+    ports: ["8084:8084", "9091:9091"]
+    depends_on:
+      pricing-db:
+        condition: service_healthy
+    networks: [ticketflow-net]
+
+  payment:                             # SOAP (Membre C)
+    build: ./payment-service
+    environment:
+      SERVER_PORT: 8085
+    ports: ["8085:8085"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8085/actuator/health | grep -q UP"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+    networks: [ticketflow-net]
+
+  booking:                             # REST + orchestration (Membre A)
+    build:
+      context: .
+      dockerfile: booking-service/Dockerfile
+    environment:
+      SERVER_PORT: 8082
+      DB_URL: jdbc:postgresql://booking-db:5432/bookingdb
+      DB_USER: ticketflow
+      DB_PASSWORD: ${BOOKING_DB_PASSWORD}
+      # Adresses des autres services (lues par booking après le patch booking-env.patch)
+      SEAT_INVENTORY_HOST: seat-inventory
+      SEAT_INVENTORY_PORT: 9090
+      PRICING_HOST: pricing
+      PRICING_PORT: 9091
+      PAYMENT_SOAP_URL: http://payment:8085/ws
+    ports: ["8082:8082"]
+    depends_on:
+      booking-db:
+        condition: service_healthy
+      seat-inventory:
+        condition: service_started
+      pricing:
+        condition: service_started
+      payment:
+        condition: service_healthy
+    networks: [ticketflow-net]
+
+  # ---------- Point d'entrée ----------
+  gateway:
+    build: ./api-gateway
+    environment:
+      SERVER_PORT: 8080
+      EVENT_CATALOG_URI: http://event-catalog:8081
+      BOOKING_URI: http://booking:8082
+    ports: ["${GATEWAY_PORT:-8080}:8080"]
+    depends_on:
+      event-catalog:
+        condition: service_started
+      booking:
+        condition: service_started
+    networks: [ticketflow-net]

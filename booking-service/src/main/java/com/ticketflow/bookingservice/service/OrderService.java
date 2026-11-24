@@ -3,12 +3,18 @@ package com.ticketflow.bookingservice.service;
 import com.ticketflow.bookingservice.dto.OrderRequest;
 import com.ticketflow.bookingservice.dto.OrderResponse;
 import com.ticketflow.bookingservice.entity.Order;
+import com.ticketflow.bookingservice.exception.BookingException;
+import com.ticketflow.bookingservice.exception.DependencyUnavailableException;
+import com.ticketflow.bookingservice.exception.InsufficientSeatsException;
+import com.ticketflow.bookingservice.exception.OrderProcessingException;
+import com.ticketflow.bookingservice.exception.PaymentRefusedException;
 import com.ticketflow.bookingservice.repository.OrderRepository;
 import com.ticketflow.pricing.grpc.GetPriceResponse;
 import com.ticketflow.seatinventory.grpc.ReserveSeatsResponse;
 import com.ticketflow.seatinventory.grpc.ReserveStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.ws.soap.client.SoapFaultClientException;
 
 import java.util.Optional;
 
@@ -63,8 +69,11 @@ public class OrderService {
                     request.getQuantity()
             );
 
+            if (reserveResponse.getStatus() == ReserveStatus.INSUFFICIENT_SEATS) {
+                throw new InsufficientSeatsException("Not enough seats available for category " + request.getCategory());
+            }
             if (reserveResponse.getStatus() != ReserveStatus.RESERVED && reserveResponse.getStatus() != ReserveStatus.ALREADY_RESERVED) {
-                throw new RuntimeException("Not enough seats available: " + reserveResponse.getMessage());
+                throw new InsufficientSeatsException("Seat reservation failed: " + reserveResponse.getMessage());
             }
 
             // Step B: Call gRPC Pricing
@@ -96,20 +105,37 @@ public class OrderService {
                         order.getPaymentTransactionId(), order.getTotalPrice(),
                         "Order confirmed successfully");
             } else {
-                throw new RuntimeException("Payment refused by PSP");
+                throw new PaymentRefusedException("Payment refused by PSP: status=" + paymentResponse.getStatus());
             }
 
-        } catch (Exception e) {
-            // 5. COMPENSATION (ROLLBACK)
-            try {
-                inventoryClient.releaseSeats(reservationId);
-            } catch (Exception ex) {
-                System.err.println("Failed to release seats for order " + reservationId + ": " + ex.getMessage());
-            }
-
-            order.setStatus("FAILED");
-            orderRepository.save(order);
-            throw new RuntimeException("Order processing failed: " + e.getMessage());
+        } catch (SoapFaultClientException ex) {
+            // Compensation: release seats if they were reserved
+            compensate(reservationId);
+            markFailed(order);
+            throw new PaymentRefusedException("Payment refused by PSP: " + ex.getMessage());
+        } catch (BookingException ex) {
+            // Typed business/dependency exceptions pass through unchanged after compensation
+            compensate(reservationId);
+            markFailed(order);
+            throw ex;
+        } catch (Exception ex) {
+            // Wrap any other exception
+            compensate(reservationId);
+            markFailed(order);
+            throw new OrderProcessingException("Order processing failed: " + ex.getMessage());
         }
+    }
+
+    private void compensate(String reservationId) {
+        try {
+            inventoryClient.releaseSeats(reservationId);
+        } catch (Exception ex) {
+            System.err.println("Failed to release seats for order " + reservationId + ": " + ex.getMessage());
+        }
+    }
+
+    private void markFailed(Order order) {
+        order.setStatus("FAILED");
+        orderRepository.save(order);
     }
 }

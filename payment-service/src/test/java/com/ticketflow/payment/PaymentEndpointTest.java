@@ -42,7 +42,7 @@ class PaymentEndpointTest {
         client.sendRequest(RequestCreators.withPayload(authorizeRequest("o-1", "120.00", "tok_visa_ok")))
                 .andExpect(ResponseMatchers.noFault())
                 .andExpect(ResponseMatchers.xpath("/pay:authorizePaymentResponse/pay:status", Map.of("pay", NS))
-                        .evaluatesTo("AUTHORIZED"));
+                        .evaluatesTo("APPROVED"));
     }
 
     @Test

@@ -1,0 +1,32 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins:
+              - "http://localhost:5173"
+              - "http://localhost:3000"
+            allowedMethods: [GET, POST, PUT, DELETE, OPTIONS]
+            allowedHeaders: "*"
+            maxAge: 3600
+      routes:
+        - id: event-catalog
+          uri: ${EVENT_CATALOG_URI:http://localhost:8081}
+          predicates:
+            - Path=/api/v1/events/**
+        - id: booking
+          uri: ${BOOKING_URI:http://localhost:8082}
+          predicates:
+            - Path=/api/v1/orders/**
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -1,0 +1,12 @@
+<?xml version="1.0"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:pay="http://ticketflow.com/payment/v1">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <pay:authorizePaymentRequest>
+      <pay:orderId>o-1</pay:orderId>
+      <pay:amount>120.00</pay:amount>
+      <pay:currency>EUR</pay:currency>
+      <pay:cardToken>tok_visa_ok</pay:cardToken>
+    </pay:authorizePaymentRequest>
+  </soapenv:Body>
+</soapenv:Envelope>

@@ -29,13 +29,14 @@ public class PaymentEndpoint {
         if (request.getAmount() == null || request.getAmount().compareTo(MAX_AMOUNT) > 0) {
             throw new PaymentFaultException("REFUSED: amount exceeds limit");
         }
-        if (request.getCardToken() == null || !request.getCardToken().endsWith("_ok")) {
+        if (request.getCardToken() == null
+                || (!request.getCardToken().endsWith("_ok") && !"VALID_TOKEN".equals(request.getCardToken()))) {
             throw new PaymentFaultException("REFUSED: invalid card token");
         }
 
         AuthorizePaymentResponse response = new AuthorizePaymentResponse();
         response.setTransactionId("txn-" + UUID.randomUUID());
-        response.setStatus("AUTHORIZED");
+        response.setStatus("APPROVED");
         return response;
     }
 
