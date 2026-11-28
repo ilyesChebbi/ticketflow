@@ -156,7 +156,7 @@ services:
       SERVER_PORT: 8080
       EVENT_CATALOG_URI: http://event-catalog:8081
       BOOKING_URI: http://booking:8082
-    ports: ["${GATEWAY_PORT:-8080}:8080"]
+    ports: ["${GATEWAY_PORT:-8888}:8080"]
     depends_on:
       event-catalog:
         condition: service_started
